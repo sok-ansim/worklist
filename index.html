@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>검사 Worklist</title>
   <style>
     body { font-size: 22px; text-align: center; font-family: Arial, sans-serif; }
@@ -11,24 +12,29 @@
     th { background: #f0f0f0; }
     .groupRow td { background: #fafafa; font-weight: 700; text-align: left; }
     .muted { color: #666; }
-    .box { display: inline-block; padding: 8px 14px; border: 1px solid #ddd; border-radius: 10px; }
+    .box { display: inline-block; padding: 10px 16px; border: 1px solid #ddd; border-radius: 10px; }
     .row { margin: 6px 0; }
-    .search { width: 220px; }
+
+    /* 입력칸 사이즈 조절 */
     .short { width: 140px; }
+    .search { width: 220px; }
   </style>
 </head>
+
 <body>
   <h2>환자 등록</h2>
 
   <div class="box">
     <div class="row">
-      검사날짜: <input id="examDate" type="date" />
-      이름: <input id="name" class="short" />
-      차트번호: <input id="chart" class="short" />
-      <button id="btnAdd">등록</button>
-    </div>
+      검사날짜:
+      <input id="examDate" type="date" />
 
-    <div class="row">
+      이름:
+      <input id="name" class="short" />
+
+      차트번호:
+      <input id="chart" class="short" />
+
       검사항목:
       <select id="exam">
         <option value="C-CT">C-CT</option>
@@ -47,15 +53,19 @@
         <option value="관절MRI">관절MRI</option>
       </select>
 
+      <button id="btnAdd">등록</button>
+    </div>
+
+    <div class="row">
       찾기:
       <input id="q" class="search" placeholder="이름/차트/검사" />
       <button id="btnSearch">검색</button>
       <button id="btnReset">초기화</button>
-      <span id="conn" class="muted"></span>
+      <span class="muted" style="margin-left:8px;">최근 7일만 표시</span>
     </div>
   </div>
 
-  <hr />
+  <hr/>
 
   <h2>Worklist</h2>
 
@@ -77,6 +87,7 @@
     <tbody id="list"></tbody>
   </table>
 
-  <script type="module" src="script.js"></script>
+  <!-- 중요: module -->
+  <script type="module" src="./script.js"></script>
 </body>
 </html>

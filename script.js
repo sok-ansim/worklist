@@ -5,7 +5,6 @@ import {
   query, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-/* Firebase 설정 */
 const firebaseConfig = {
   apiKey: "AIzaSyD21eQ4LDWVzT5mdn9DBXgJj2cWrFBj6uc",
   authDomain: "sokansimworklist.firebaseapp.com",
@@ -23,6 +22,13 @@ const db = getFirestore(app);
 const COL = "worklist";
 const $ = (id) => document.getElementById(id);
 
+function setStatus(msg, isError = false) {
+  const el = $("status");
+  if (!el) return;
+  el.style.color = isError ? "#b00020" : "#666";
+  el.textContent = msg || "";
+}
+
 function pad2(n){ return String(n).padStart(2,"0"); }
 function todayStr(){
   const d = new Date();
@@ -33,11 +39,9 @@ function fmtTime(ts){
   const d = ts.toDate();
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
-
 function startOfDay(dateStr){
   return new Date(dateStr + "T00:00:00");
 }
-
 function withinLast7Days(examDateStr){
   const now = new Date();
   const cutoff = new Date(now);
@@ -46,10 +50,8 @@ function withinLast7Days(examDateStr){
   return startOfDay(examDateStr) >= cutoff;
 }
 
-/* 화면용 메모리 */
 let all = [];
 
-/* 렌더 */
 function render(){
   const q = (($("q").value || "").trim()).toLowerCase();
   const list = $("list");
@@ -117,67 +119,80 @@ function render(){
   }
 }
 
-/* 등록 */
 async function addItem(){
-  const name = ($("name").value || "").trim();
-  const chart = ($("chart").value || "").trim();
-  const exam = $("exam").value;
-  const examDate = $("examDate").value;
+  try{
+    if(!auth.currentUser){
+      setStatus("로그인 진행 중입니다. 2초 후 다시 등록해 주세요.", true);
+      return;
+    }
 
-  if(!examDate) return alert("검사날짜를 선택하세요.");
-  if(!name || !chart) return alert("이름과 차트번호를 입력하세요.");
+    const name = ($("name").value || "").trim();
+    const chart = ($("chart").value || "").trim();
+    const exam = $("exam").value;
+    const examDate = $("examDate").value;
 
-  await addDoc(collection(db, COL), {
-    name,
-    chart,
-    exam,
-    examDate,
-    status: "대기",
-    visitAt: null,
-    startAt: null,
-    finishAt: null,
-    createdAt: serverTimestamp(),
-    createdAtMs: Date.now()
-  });
+    if(!examDate){ alert("검사날짜를 선택하세요."); return; }
+    if(!name || !chart){ alert("이름과 차트번호를 입력하세요."); return; }
 
-  $("name").value = "";
-  $("chart").value = "";
+    setStatus("등록 중...");
+
+    await addDoc(collection(db, COL), {
+      name,
+      chart,
+      exam,
+      examDate,
+      status: "대기",
+      visitAt: null,
+      startAt: null,
+      finishAt: null,
+      createdAt: serverTimestamp(),
+      createdAtMs: Date.now()
+    });
+
+    $("name").value = "";
+    $("chart").value = "";
+    setStatus("등록 완료");
+  }catch(err){
+    console.error(err);
+    setStatus(`등록 실패: ${err?.message || err}`, true);
+    alert("등록 실패. 화면 하단 상태메시지 또는 콘솔(F12)을 확인하세요.");
+  }
 }
 
-/* 내원 */
 async function markVisit(id){
-  const ref = doc(db, COL, id);
-  await updateDoc(ref, {
-    status: "내원",
-    visitAt: serverTimestamp()
-  });
+  try{
+    await updateDoc(doc(db, COL, id), { status: "내원", visitAt: serverTimestamp() });
+  }catch(err){
+    console.error(err);
+    setStatus(`내원 처리 실패: ${err?.message || err}`, true);
+  }
 }
-
-/* Start */
 async function startExam(id){
-  const ref = doc(db, COL, id);
-  await updateDoc(ref, {
-    status: "진행중",
-    startAt: serverTimestamp()
-  });
+  try{
+    await updateDoc(doc(db, COL, id), { status: "진행중", startAt: serverTimestamp() });
+  }catch(err){
+    console.error(err);
+    setStatus(`Start 실패: ${err?.message || err}`, true);
+  }
 }
-
-/* Finish */
 async function finishExam(id){
-  const ref = doc(db, COL, id);
-  await updateDoc(ref, {
-    status: "완료",
-    finishAt: serverTimestamp()
-  });
+  try{
+    await updateDoc(doc(db, COL, id), { status: "완료", finishAt: serverTimestamp() });
+  }catch(err){
+    console.error(err);
+    setStatus(`Finish 실패: ${err?.message || err}`, true);
+  }
 }
-
-/* 삭제 */
 async function removeItem(id){
-  if(!confirm("삭제할까요?")) return;
-  await deleteDoc(doc(db, COL, id));
+  try{
+    if(!confirm("삭제할까요?")) return;
+    await deleteDoc(doc(db, COL, id));
+  }catch(err){
+    console.error(err);
+    setStatus(`삭제 실패: ${err?.message || err}`, true);
+  }
 }
 
-/* 이벤트 연결 */
 function wireEvents(){
   $("btnAdd").addEventListener("click", addItem);
   $("btnSearch").addEventListener("click", render);
@@ -198,25 +213,27 @@ function wireEvents(){
     const id = btn.dataset.id;
     if(!act || !id) return;
 
-    try{
-      if(act === "visit") await markVisit(id);
-      if(act === "start") await startExam(id);
-      if(act === "finish") await finishExam(id);
-      if(act === "del") await removeItem(id);
-    }catch(err){
-      console.error(err);
-      alert("처리 중 오류가 발생했습니다. 콘솔(F12)을 확인하세요.");
-    }
+    if(act === "visit") await markVisit(id);
+    if(act === "start") await startExam(id);
+    if(act === "finish") await finishExam(id);
+    if(act === "del") await removeItem(id);
   });
 }
 
 /* 시작 */
 $("examDate").value = todayStr();
 wireEvents();
+setStatus("로그인 연결 중...");
 
-/* 로그인 후 실시간 구독 */
 onAuthStateChanged(auth, (user)=>{
-  if(!user) return;
+  if(!user){
+    $("btnAdd").disabled = true;
+    setStatus("로그인 연결 중...", true);
+    return;
+  }
+
+  $("btnAdd").disabled = false;
+  setStatus("연결됨");
 
   const qy = query(collection(db, COL));
   onSnapshot(qy, (snap)=>{
@@ -224,11 +241,11 @@ onAuthStateChanged(auth, (user)=>{
     render();
   }, (err)=>{
     console.error(err);
-    alert("Firestore 연결 오류. 콘솔(F12)을 확인하세요.");
+    setStatus(`데이터 수신 실패: ${err?.message || err}`, true);
   });
 });
 
 signInAnonymously(auth).catch((err)=>{
   console.error(err);
-  alert("익명 로그인 오류. 콘솔(F12)을 확인하세요.");
+  setStatus(`익명 로그인 실패: ${err?.message || err}`, true);
 });
