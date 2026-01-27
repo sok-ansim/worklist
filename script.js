@@ -1,105 +1,112 @@
-// 새로고침해도 목록 유지되게(설치 필요 없음)
-let patients = JSON.parse(localStorage.getItem("patients") || "[]");
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  getFirestore, collection, addDoc, doc, updateDoc, deleteDoc,
+  query, where, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-function save() {
-  localStorage.setItem("patients", JSON.stringify(patients));
+// 🔽 여기만 네 값으로 바꾸기
+const firebaseConfig = {
+  apiKey: "AIzaSyD21eQ4LDWVzT5mdn9DBXgJj2cWrFBj6uc",
+  authDomain: "sokansimworklist.firebaseapp.com",
+  projectId: "sokansimworklist",
+  storageBucket: "sokansimworklist.firebasestorage.app",
+  messagingSenderId: "528257328628",
+  appId: "1:528257328628:web:27fa057d01964ff08685a1",
+  measurementId: "G-SNSZSGHZV4"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const COL = "worklist";
+
+function pad2(n){ return String(n).padStart(2,"0"); }
+function todayStr(){
+  const d=new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+}
+function fmtTime(ts){
+  if(!ts) return "-";
+  const d=ts.toDate();
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
 
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
+const $=id=>document.getElementById(id);
+let all=[];
 
-function formatNow() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
+function render(){
+  const q=($("q").value||"").toLowerCase();
+  const list=$("list");
+  list.innerHTML="";
+  const f=all.filter(it=>(`${it.name} ${it.chart} ${it.exam}`).toLowerCase().includes(q))
+             .sort((a,b)=>a.examDate<b.examDate?1:-1);
 
-function addPatient() {
-  const name = document.getElementById("name").value.trim();
-  const chart = document.getElementById("chart").value.trim();
-  const exam = document.getElementById("exam").value;
-
-  if (!name || !chart) {
-    alert("이름과 차트번호를 입력해 주세요.");
-    return;
-  }
-
-  const patient = {
-    name,
-    chart,
-    exam,
-    status: "대기",
-    startedAt: "",
-    finishedAt: ""
-  };
-
-  patients.push(patient);
-  save();
-  render();
-
-  // 입력칸 비우기
-  document.getElementById("name").value = "";
-  document.getElementById("chart").value = "";
-}
-
-function startExam(index) {
-  const p = patients[index];
-
-  if (p.status !== "대기") {
-    alert("대기 상태에서만 Start가 가능합니다.");
-    return;
-  }
-
-  p.status = "진행중";
-  p.startedAt = formatNow();
-  save();
-  render();
-}
-
-function finishExam(index) {
-  const p = patients[index];
-
-  if (p.status !== "진행중") {
-    alert("진행중 상태에서만 Finish가 가능합니다.");
-    return;
-  }
-
-  p.status = "완료";
-  p.finishedAt = formatNow();
-  save();
-  render();
-}
-
-// (선택) 잘못 등록한 경우 지우기용
-function removeRow(index) {
-  if (!confirm("해당 항목을 삭제할까요?")) return;
-  patients.splice(index, 1);
-  save();
-  render();
-}
-
-function render() {
-  const list = document.getElementById("list");
-  list.innerHTML = "";
-
-  patients.forEach((p, i) => {
-    const startDisabled = p.status !== "대기" ? "disabled" : "";
-    const finishDisabled = p.status !== "진행중" ? "disabled" : "";
-
-    list.innerHTML += `
+  let g={};
+  f.forEach(it=>{(g[it.examDate]=g[it.examDate]||[]).push(it);});
+  Object.keys(g).sort((a,b)=>a<b?1:-1).forEach(d=>{
+    list.innerHTML+=`<tr class="groupRow"><td colspan="10">📅 ${d}</td></tr>`;
+    g[d].forEach(it=>{
+      list.innerHTML+=`
       <tr>
-        <td>${p.name}</td>
-        <td>${p.chart}</td>
-        <td>${p.exam}</td>
-        <td>${p.status}</td>
-        <td>${p.startedAt || "-"}</td>
-        <td>${p.finishedAt || "-"}</td>
-        <td><button ${startDisabled} onclick="startExam(${i})">Start</button></td>
-        <td><button ${finishDisabled} onclick="finishExam(${i})">Finish</button></td>
-      </tr>
-    `;
+        <td>${it.examDate}</td>
+        <td>${it.name}</td>
+        <td>${it.chart}</td>
+        <td>${it.exam}</td>
+        <td>${it.status}</td>
+        <td>${fmtTime(it.visitAt)}</td>
+        <td>${fmtTime(it.startAt)}<br><button onclick="startExam('${it.id}')">Start</button></td>
+        <td>${fmtTime(it.finishAt)}<br><button onclick="finishExam('${it.id}')">Finish</button></td>
+        <td><button onclick="markVisit('${it.id}')">내원</button></td>
+        <td><button onclick="removeItem('${it.id}')">삭제</button></td>
+      </tr>`;
+    });
   });
 }
 
-// 첫 화면 그리기
-render();
+async function addItem(){
+  await addDoc(collection(db,COL),{
+    name:$("name").value,
+    chart:$("chart").value,
+    exam:$("exam").value,
+    examDate:$("examDate").value,
+    status:"대기",
+    visitAt:null,startAt:null,finishAt:null,
+    createdAt:serverTimestamp()
+  });
+  $("name").value="";$("chart").value="";
+}
+
+async function markVisit(id){
+  await updateDoc(doc(db,COL,id),{status:"내원",visitAt:serverTimestamp()});
+}
+async function startExam(id){
+  await updateDoc(doc(db,COL,id),{status:"진행중",startAt:serverTimestamp()});
+}
+async function finishExam(id){
+  await updateDoc(doc(db,COL,id),{status:"완료",finishAt:serverTimestamp()});
+}
+async function removeItem(id){
+  await deleteDoc(doc(db,COL,id));
+}
+
+window.addItem=addItem;
+window.markVisit=markVisit;
+window.startExam=startExam;
+window.finishExam=finishExam;
+window.removeItem=removeItem;
+
+$("examDate").value=todayStr();
+$("btnAdd").onclick=addItem;
+$("btnSearch").onclick=render;
+$("btnReset").onclick=()=>{$("q").value="";render();};
+
+onAuthStateChanged(auth,()=>{
+  const qy=query(collection(db,COL));
+  onSnapshot(qy,s=>{
+    all=s.docs.map(d=>({id:d.id,...d.data()}));
+    render();
+  });
+});
+signInAnonymously(auth);
