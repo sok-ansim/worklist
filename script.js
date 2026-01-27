@@ -110,3 +110,56 @@ onAuthStateChanged(auth,()=>{
   });
 });
 signInAnonymously(auth);
+
+// 🔥 Firebase SDK 불러오기
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } 
+  from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getAuth, signInAnonymously } 
+  from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+// 🔐 네 Firebase 설정
+const firebaseConfig = {
+  apiKey: "AIzaSyD21eQ4LDWVzT5mdn9DBXgJj2cWrFBj6uc",
+  authDomain: "sokansimworklist.firebaseapp.com",
+  projectId: "sokansimworklist",
+  storageBucket: "sokansimworklist.firebasestorage.app",
+  messagingSenderId: "528257328628",
+  appId: "1:528257328628:web:27fa057d01964ff08685a1",
+  measurementId: "G-SNSZSGHZV4"
+};
+
+// 🚀 Firebase 초기화
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// 👤 익명 로그인
+signInAnonymously(auth)
+  .then(() => {
+    console.log("익명 로그인 성공");
+  })
+  .catch((error) => {
+    console.error("로그인 오류:", error);
+  });
+
+// 📂 Firestore 컬렉션
+const worklistRef = collection(db, "worklist");
+
+// ➕ 데이터 추가 예시 (나중에 버튼 연결)
+async function addTest() {
+  await addDoc(worklistRef, {
+    name: "테스트",
+    chart: "0000",
+    exam: "C-CT",
+    time: new Date()
+  });
+}
+
+// 👀 실시간 감시
+onSnapshot(query(worklistRef, orderBy("time", "desc")), (snapshot) => {
+  console.log("🔥 실시간 데이터:");
+  snapshot.forEach(doc => {
+    console.log(doc.data());
+  });
+});
