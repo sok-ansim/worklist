@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, addDoc, doc, updateDoc, deleteDoc,
-  query, onSnapshot, serverTimestamp
+  query, onSnapshot, serverTimestamp, where, getDocs, limit, orderBy
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -11,8 +11,7 @@ const firebaseConfig = {
   projectId: "sokansimworklist",
   storageBucket: "sokansimworklist.firebasestorage.app",
   messagingSenderId: "528257328628",
-  appId: "1:528257328628:web:27fa057d01964ff08685a1",
-  measurementId: "G-SNSZSGHZV4"
+  appId: "1:528257328628:web:27fa057d01964ff08685a1"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -22,120 +21,56 @@ const db = getFirestore(app);
 const COL = "worklist";
 const $ = (id) => document.getElementById(id);
 
-function setStatus(msg, isError = false) {
-  const el = $("status");
-  if (!el) return;
-  el.style.color = isError ? "#b00020" : "#666";
-  el.textContent = msg || "";
-}
-
-function pad2(n){ return String(n).padStart(2,"0"); }
+function pad2(n){ return String(n).padStart(2, "0"); }
 function todayStr(){
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
 }
 function fmtTime(ts){
-  if(!ts) return "-";
-  const d = ts.toDate();
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  if(!ts) return "";
+  try{
+    const d = ts.toDate();
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  }catch{
+    return "";
+  }
 }
-function startOfDay(dateStr){
-  return new Date(dateStr + "T00:00:00");
-}
-function withinLast7Days(examDateStr){
-  const now = new Date();
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 6);
-  cutoff.setHours(0,0,0,0);
-  return startOfDay(examDateStr) >= cutoff;
+function getSelectedExams(){
+  return Array.from(document.querySelectorAll(".examChk:checked")).map(x => x.value);
 }
 
 let all = [];
 
-function render(){
-  const q = (($("q").value || "").trim()).toLowerCase();
-  const list = $("list");
-  list.innerHTML = "";
-
-  const filtered = all
-    .filter(it => withinLast7Days(it.examDate))
-    .filter(it => {
-      if(!q) return true;
-      const hay = `${it.name} ${it.chart} ${it.exam}`.toLowerCase();
-      return hay.includes(q);
-    })
-    .sort((a,b) => {
-      if(a.examDate !== b.examDate) return a.examDate < b.examDate ? 1 : -1;
-      return (b.createdAtMs || 0) - (a.createdAtMs || 0);
-    });
-
-  const groups = new Map();
-  for(const it of filtered){
-    if(!groups.has(it.examDate)) groups.set(it.examDate, []);
-    groups.get(it.examDate).push(it);
-  }
-  const dates = Array.from(groups.keys()).sort((a,b)=> a < b ? 1 : -1);
-
-  for(const d of dates){
-    const trG = document.createElement("tr");
-    trG.className = "groupRow";
-    trG.innerHTML = `<td colspan="10">${d}</td>`;
-    list.appendChild(trG);
-
-    for(const it of groups.get(d)){
-      const startDisabled = it.status !== "내원" ? "disabled" : "";
-      const finishDisabled = it.status !== "진행중" ? "disabled" : "";
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${it.examDate}</td>
-        <td>${it.name}</td>
-        <td>${it.chart}</td>
-        <td>${it.exam}</td>
-        <td>${it.status}</td>
-        <td>${fmtTime(it.visitAt)}</td>
-
-        <td>
-          ${fmtTime(it.startAt)}<br/>
-          <button ${startDisabled} data-act="start" data-id="${it.id}">Start</button>
-        </td>
-
-        <td>
-          ${fmtTime(it.finishAt)}<br/>
-          <button ${finishDisabled} data-act="finish" data-id="${it.id}">Finish</button>
-        </td>
-
-        <td><button data-act="visit" data-id="${it.id}">내원</button></td>
-        <td><button data-act="del" data-id="${it.id}">삭제</button></td>
-      `;
-      list.appendChild(tr);
-    }
-  }
-
-  if(filtered.length === 0){
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="10" class="muted">표시할 항목이 없습니다.</td>`;
-    list.appendChild(tr);
-  }
-}
-
 async function addItem(){
-  try{
-    if(!auth.currentUser){
-      setStatus("로그인 진행 중입니다. 2초 후 다시 등록해 주세요.", true);
-      return;
+  const name = ($("name")?.value || "").trim();
+  const chart = ($("chart")?.value || "").trim();
+  const examDate = $("examDate")?.value;
+  const exams = getSelectedExams();
+
+  if(!name || !chart || !examDate || exams.length === 0){
+    alert("검사날짜/이름/차트번호/검사항목을 확인해 주세요.");
+    return;
+  }
+
+  // 중복 체크(같은 날짜 + 차트 + 검사)
+  for(const exam of exams){
+    const dupQ = query(
+      collection(db, COL),
+      where("examDate", "==", examDate),
+      where("chart", "==", chart),
+      where("exam", "==", exam),
+      limit(1)
+    );
+    const snap = await getDocs(dupQ);
+    if(!snap.empty){
+      const ok = confirm("선택한 항목 중 이미 등록된 검사가 포함되어 있습니다.\n그래도 등록할까요?");
+      if(!ok) return;
+      break;
     }
+  }
 
-    const name = ($("name").value || "").trim();
-    const chart = ($("chart").value || "").trim();
-    const exam = $("exam").value;
-    const examDate = $("examDate").value;
-
-    if(!examDate){ alert("검사날짜를 선택하세요."); return; }
-    if(!name || !chart){ alert("이름과 차트번호를 입력하세요."); return; }
-
-    setStatus("등록 중...");
-
+  // 여러 검사 한번에 등록
+  for(const exam of exams){
     await addDoc(collection(db, COL), {
       name,
       chart,
@@ -148,64 +83,80 @@ async function addItem(){
       createdAt: serverTimestamp(),
       createdAtMs: Date.now()
     });
+  }
 
-    $("name").value = "";
-    $("chart").value = "";
-    setStatus("등록 완료");
-  }catch(err){
-    console.error(err);
-    setStatus(`등록 실패: ${err?.message || err}`, true);
-    alert("등록 실패. 화면 하단 상태메시지 또는 콘솔(F12)을 확인하세요.");
+  $("name").value = "";
+  $("chart").value = "";
+  document.querySelectorAll(".examChk").forEach(x => x.checked = false);
+}
+
+function render(){
+  const qText = (($("q")?.value || "").trim()).toLowerCase();
+  const selectedDate = $("examDate")?.value || todayStr();
+  const list = $("list");
+  list.innerHTML = "";
+
+  // all은 이미 createdAtMs desc 로 들어옴 (Firestore에서 정렬)
+  const filtered = all
+    .filter(it => it.examDate === selectedDate)
+    .filter(it => {
+      if(!qText) return true;
+      const hay = `${it.name} ${it.chart} ${it.exam}`.toLowerCase();
+      return hay.includes(qText);
+    });
+
+  if(filtered.length === 0){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="9" class="muted">표시할 항목이 없습니다.</td>`;
+    list.appendChild(tr);
+    return;
+  }
+
+  for(const it of filtered){
+    const visitText  = fmtTime(it.visitAt)  || "접수";
+    const startText  = fmtTime(it.startAt)  || "Start";
+    const finishText = fmtTime(it.finishAt) || "Finish";
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${it.examDate}</td>
+      <td>${it.name}</td>
+      <td>${it.chart}</td>
+      <td>${it.exam}</td>
+      <td style="color:${it.status === "진행중" ? "red" :it.status === "완료" ? "blue" :"black"};">${it.status}</td>
+
+
+      <td><button data-act="visit" data-id="${it.id}">${visitText}</button></td>
+      <td><button data-act="start" data-id="${it.id}">${startText}</button></td>
+      <td><button data-act="finish" data-id="${it.id}">${finishText}</button></td>
+
+      <td><button data-act="del" data-id="${it.id}">삭제</button></td>
+    `;
+    list.appendChild(tr);
   }
 }
 
 async function markVisit(id){
-  try{
-    await updateDoc(doc(db, COL, id), { status: "내원", visitAt: serverTimestamp() });
-  }catch(err){
-    console.error(err);
-    setStatus(`내원 처리 실패: ${err?.message || err}`, true);
-  }
+  await updateDoc(doc(db, COL, id), { status: "접수", visitAt: serverTimestamp() });
 }
 async function startExam(id){
-  try{
-    await updateDoc(doc(db, COL, id), { status: "진행중", startAt: serverTimestamp() });
-  }catch(err){
-    console.error(err);
-    setStatus(`Start 실패: ${err?.message || err}`, true);
-  }
+  await updateDoc(doc(db, COL, id), { status: "진행중", startAt: serverTimestamp() });
 }
 async function finishExam(id){
-  try{
-    await updateDoc(doc(db, COL, id), { status: "완료", finishAt: serverTimestamp() });
-  }catch(err){
-    console.error(err);
-    setStatus(`Finish 실패: ${err?.message || err}`, true);
-  }
+  await updateDoc(doc(db, COL, id), { status: "완료", finishAt: serverTimestamp() });
 }
 async function removeItem(id){
-  try{
-    if(!confirm("삭제할까요?")) return;
-    await deleteDoc(doc(db, COL, id));
-  }catch(err){
-    console.error(err);
-    setStatus(`삭제 실패: ${err?.message || err}`, true);
-  }
+  if(!confirm("삭제할까요?")) return;
+  await deleteDoc(doc(db, COL, id));
 }
 
 function wireEvents(){
   $("btnAdd").addEventListener("click", addItem);
   $("btnSearch").addEventListener("click", render);
-  $("btnReset").addEventListener("click", () => {
-    $("q").value = "";
-    render();
-  });
+  $("btnReset").addEventListener("click", () => { $("q").value = ""; render(); });
+  $("examDate").addEventListener("change", render);
 
-  $("q").addEventListener("keydown", (e)=>{ if(e.key==="Enter") render(); });
-  $("name").addEventListener("keydown", (e)=>{ if(e.key==="Enter") addItem(); });
-  $("chart").addEventListener("keydown", (e)=>{ if(e.key==="Enter") addItem(); });
-
-  $("list").addEventListener("click", async (e)=>{
+  $("list").addEventListener("click", async (e) => {
     const btn = e.target.closest("button");
     if(!btn) return;
 
@@ -213,39 +164,50 @@ function wireEvents(){
     const id = btn.dataset.id;
     if(!act || !id) return;
 
-    if(act === "visit") await markVisit(id);
-    if(act === "start") await startExam(id);
-    if(act === "finish") await finishExam(id);
-    if(act === "del") await removeItem(id);
+    const it = all.find(x => x.id === id);
+    if(!it) return;
+
+    // disabled 안 쓰고, 상태로만 동작 제한(버튼 회색 방지)
+    if(act === "visit"){
+      if(it.status !== "대기") return;
+      await markVisit(id);
+      return;
+    }
+    if(act === "start"){
+      if(it.status !== "접수") return;
+      await startExam(id);
+      return;
+    }
+    if(act === "finish"){
+      if(it.status !== "진행중") return;
+      await finishExam(id);
+      return;
+    }
+    if(act === "del"){
+      await removeItem(id);
+      return;
+    }
   });
 }
 
-/* 시작 */
+// 시작
 $("examDate").value = todayStr();
 wireEvents();
-setStatus("로그인 연결 중...");
 
-onAuthStateChanged(auth, (user)=>{
+onAuthStateChanged(auth, (user) => {
   if(!user){
     $("btnAdd").disabled = true;
-    setStatus("로그인 연결 중...", true);
     return;
   }
-
   $("btnAdd").disabled = false;
-  setStatus("연결됨");
 
-  const qy = query(collection(db, COL));
-  onSnapshot(qy, (snap)=>{
+  // Firestore에서 최신 등록(createdAtMs desc)으로 받아오기
+  const q = query(collection(db, COL), orderBy("createdAtMs", "desc"));
+
+  onSnapshot(q, (snap) => {
     all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     render();
-  }, (err)=>{
-    console.error(err);
-    setStatus(`데이터 수신 실패: ${err?.message || err}`, true);
   });
 });
 
-signInAnonymously(auth).catch((err)=>{
-  console.error(err);
-  setStatus(`익명 로그인 실패: ${err?.message || err}`, true);
-});
+signInAnonymously(auth);
